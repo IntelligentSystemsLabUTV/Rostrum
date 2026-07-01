@@ -8,23 +8,20 @@ and column 2 is the horizon angle in degrees.
 
 ## Usage
 
-Place the Buoy videos under `logs/Buoy/` before running the Python port. The
-MAT files are not used as ground-truth inputs in this workflow.
+Place the Buoy videos and HorizonGT MAT files under `logs/Buoy/` before running
+the Python port. The MAT files are used as horizon-line ground truth when passed
+with `--ground-truth`.
 
 ```bash
 python tools/HL-TSA/hl_detect_tsa.py \
   logs/Buoy/buoyGT_2_5_3_4.avi \
-  --listener-frames 20 \
+  --listener-frames 16 \
+  --canny-low 20 \
+  --canny-high 60 \
+  --hough-threshold 15 \
+  --ground-truth logs/Buoy/buoyGT_2_5_3_4HorizonGT.mat \
   --csv logs/Buoy/buoyGT_2_5_3_4_states.csv \
-  --timing-csv logs/Buoy/buoyGT_2_5_3_4_timing.csv \
-  --frame-timing-csv logs/Buoy/buoyGT_2_5_3_4_frame_timing.csv
-```
-
-```bash
-python tools/HL-TSA/hl_detect_tsa.py \
-  logs/Buoy/buoyGT_2_6_3_0.avi \
-  --listener-frames 20 \
-  --frame-timing-csv logs/Buoy/buoyGT_2_6_3_0_frame_timing.csv
+  --timing-csv logs/Buoy/buoyGT_2_5_3_4_timing.csv
 ```
 
 Add `--output-video path/to/output.avi` to save frames annotated with the
