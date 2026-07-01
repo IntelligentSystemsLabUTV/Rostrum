@@ -23,5 +23,5 @@
     max_abs_horizon_angle_deg: 35.0
     min_roi_height_fraction: 0.075
     error_band_fraction: 0.025
-    min_y_sd: 2.0
-    min_theta_sd: 0.25
+    min_y_sd: 0.05
+    min_theta_sd: 0.01

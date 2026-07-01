@@ -11,7 +11,60 @@ package mirrors the structure of `object_detector_cpp_dst`:
 - `src/hl_tsa_video_app.cpp`: offline video benchmarking application.
 
 The implementation is CPU-only. It uses OpenCV Canny, connected components,
-Hough lines, and histogram operations.
+Hough lines, and histogram operations for the horizon-line detector (`HLDA`,
+substituting Hough for MATLAB's Radon transform, which has no OpenCV
+equivalent), and an exact ARIMA(2,d,0)+GARCH(1,1) time series model for the
+dynamic ROI, matching `HL_Detect_TSA.m`'s `Mdly`/`Mdlt` (`arima('ARLags',1:2,
+'D',d,'Variance',garch(1,1))`).
+
+## Time series model (`ArimaGarchModel`)
+
+For each of `y` (`D=2`) and `theta` (`D=0`), the model is fit once after the
+listener block by jointly maximizing the exact Gaussian conditional
+log-likelihood of the ARMA(2) mean equation plus GARCH(1,1) conditional
+variance equation, via a dependency-free Nelder-Mead simplex (no
+gradient/toolbox optimizer is available in C++, unlike MATLAB's `fmincon`).
+One-step-ahead forecasts then reuse those fixed coefficients every frame,
+exactly as `HL_Detect_TSA.m` does (`estimate` is called once; `forecast` is
+called every frame). The forecast horizon is always 1, so the returned
+forecast variance equals the GARCH one-step conditional variance directly
+(the MA(1) coefficient on the next innovation is always 1, independent of
+`D`).
+
+Two points are exact matches to MATLAB's public documentation
+(mathworks.com/help/econ/): the `Constant` term is fixed at 0 when `D>0`
+(not estimated) and estimated when `D=0`; the presample window length is
+`N - P` frames where `P = p + D` is the compound AR polynomial degree, so
+`P=4` for the `y` model and `P=2` for `theta` (not simply the AR lag order).
+This `Constant` behavior is what this implementation assumes for `theta`
+(`D=0`), but note the paper (Agaoglu & Topaloglu, 2025, Eq. 3) writes the
+theta mean equation with no intercept term at all
+(`(1-gamma1*B-gamma2*B^2)*theta_k = eps_theta,k`) -- it's ambiguous whether
+that is a notational simplification or the actual fitted model has no
+constant; this implementation follows the documented MATLAB software
+default rather than the paper's possibly-simplified displayed equation.
+
+Two points are principled but **not verifiable against MATLAB's source**
+(the Econometrics Toolbox does not publish exact numerics for these):
+
+- **Presample backcast**: MATLAB documents only that presample
+  variances/innovations default to "the sample mean of squared response
+  series," with no disclosed formula. This is implemented as a *fixed*
+  value (mean of squared conditional-least-squares residuals from the
+  initial AR fit), held constant across optimization iterations and reused
+  for every forecast call of that fitted model.
+- **Optimizer**: Nelder-Mead simplex in place of whatever solver MATLAB's
+  `estimate` uses internally (undisclosed by MathWorks' public docs, and
+  not named in the paper either -- the paper only says the listener-block
+  states "are... used to optimize the coefficients of the TSMs", with no
+  solver specified). The objective (log-likelihood) and constraints
+  (stationary AR(2) triangle via a Durbin-Levinson reparametrization;
+  `omega>0`, `alpha, beta>=0`, `alpha+beta<0.999`) are exact; the numerical
+  path to the optimum is not the same algorithm.
+
+`min_y_sd`/`min_theta_sd` are pure numerical safety floors (default 0.05 px,
+0.01 deg) guarding against a degenerate zero-width ROI on pathological
+input; they are not part of the paper's model.
 
 ## Build
 

@@ -26,9 +26,11 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <numeric>
 #include <set>
+#include <stdexcept>
 
 namespace hl_tsa_cpp
 {
@@ -91,75 +93,7 @@ double mean_tail_with_current(const std::vector<double> & values, double current
   return std::accumulate(recent.begin(), recent.end(), 0.0) / static_cast<double>(recent.size());
 }
 
-} // namespace
-
-void ARModel::fit(const std::vector<double> & values, int differencing, double min_sd)
-{
-  differencing_ = differencing;
-  min_sd_ = min_sd;
-  order_ = 2;
-
-  const std::vector<double> transformed = difference(values, differencing_);
-  if (transformed.size() <= static_cast<size_t>(order_)) {
-    variance_ = std::max(vector_variance(transformed), min_sd_ * min_sd_);
-    coefficients_ = Eigen::Vector3d(0.0, 1.0, 0.0);
-    return;
-  }
-
-  const int rows = static_cast<int>(transformed.size()) - order_;
-  Eigen::MatrixXd design(rows, 3);
-  Eigen::VectorXd target(rows);
-  for (int i = 0; i < rows; ++i) {
-    const int idx = i + order_;
-    design(i, 0) = 1.0;
-    design(i, 1) = transformed[idx - 1];
-    design(i, 2) = transformed[idx - 2];
-    target(i) = transformed[idx];
-  }
-
-  coefficients_ = design.colPivHouseholderQr().solve(target);
-  const Eigen::VectorXd residual = target - design * coefficients_;
-  std::vector<double> residual_values;
-  residual_values.reserve(static_cast<size_t>(residual.size()));
-  for (int i = 0; i < residual.size(); ++i) {
-    residual_values.push_back(residual(i));
-  }
-  variance_ = std::max(vector_variance(residual_values), min_sd_ * min_sd_);
-}
-
-std::pair<double, double> ARModel::forecast(const std::vector<double> & values) const
-{
-  if (values.empty()) {
-    return {0.0, variance_};
-  }
-
-  const std::vector<double> transformed = difference(values, differencing_);
-  double transformed_next = 0.0;
-  if (transformed.empty()) {
-    transformed_next = 0.0;
-  } else if (transformed.size() == 1) {
-    transformed_next = transformed.back();
-  } else {
-    transformed_next = coefficients_.dot(Eigen::Vector3d(1.0, transformed[transformed.size() - 1],
-      transformed[transformed.size() - 2]));
-  }
-
-  double forecast_value = transformed_next;
-  if (differencing_ == 1) {
-    forecast_value = values.back() + transformed_next;
-  } else if (differencing_ >= 2) {
-    if (values.size() >= 2) {
-      forecast_value = 2.0 * values[values.size() - 1] - values[values.size() - 2] + transformed_next;
-    } else {
-      forecast_value = values.back();
-    }
-  }
-
-  const double local_var = local_variance(transformed);
-  return {forecast_value, std::max({variance_, local_var, min_sd_ * min_sd_})};
-}
-
-std::vector<double> ARModel::difference(const std::vector<double> & values, int order)
+std::vector<double> difference(const std::vector<double> & values, int order)
 {
   std::vector<double> out = values;
   for (int d = 0; d < order; ++d) {
@@ -177,14 +111,365 @@ std::vector<double> ARModel::difference(const std::vector<double> & values, int 
   return out;
 }
 
-double ARModel::local_variance(const std::vector<double> & transformed) const
+// Inverts the D-th order differencing for a 1-step-ahead forecast, i.e. recovers a
+// forecast of y[T+1] given a forecast of w[T+1] = Delta^D y[T+1] and the most recent
+// raw (undifferenced) observations. Only D in {0,1,2} is needed by HL_Detect_TSA.m.
+double undifference_forecast(const std::vector<double> & window, int d, double w_forecast)
 {
-  if (transformed.size() < 3) {
-    return min_sd_ * min_sd_;
+  switch (d) {
+    case 0:
+      return w_forecast;
+    case 1:
+      return w_forecast + window.back();
+    case 2:
+      return w_forecast + 2.0 * window[window.size() - 1] - window[window.size() - 2];
+    default:
+      throw std::invalid_argument("undifference_forecast: unsupported differencing order");
   }
-  const size_t start = transformed.size() > 12 ? transformed.size() - 12 : 0;
-  return vector_variance(std::vector<double>(transformed.begin() + static_cast<std::ptrdiff_t>(start),
-    transformed.end()));
+}
+
+double sigmoid(double x)
+{
+  return 1.0 / (1.0 + std::exp(-x));
+}
+
+double logit(double p)
+{
+  p = std::clamp(p, 1e-6, 1.0 - 1e-6);
+  return std::log(p / (1.0 - p));
+}
+
+// Caps alpha+beta strictly below 1 so the unconditional/backcast variance
+// omega/(1-alpha-beta) stays finite and well-conditioned during optimization.
+constexpr double kMaxGarchPersistence = 0.999;
+
+// Maps an unconstrained optimization vector theta to the model's natural parameters.
+// AR(2) coefficients are produced via a Durbin-Levinson step on tanh-mapped partial
+// autocorrelations (r1, r2), which guarantees the causal/stationary AR(2) triangle
+// for any real (u1, u2) -- the standard reparametrization used to keep ARMA fits
+// stationary during unconstrained optimization (Monahan, 1984). GARCH persistence
+// (alpha+beta) and its alpha/beta split are mapped through sigmoids so omega > 0,
+// alpha >= 0, beta >= 0 and alpha+beta < 1 hold unconditionally.
+void decode_params(
+  const std::vector<double> & theta, bool has_constant,
+  double & c, double & phi1, double & phi2, double & omega, double & alpha, double & beta)
+{
+  size_t idx = 0;
+  c = has_constant ? theta[idx++] : 0.0;
+  const double r1 = std::tanh(theta[idx++]);
+  const double r2 = std::tanh(theta[idx++]);
+  phi2 = r2;
+  phi1 = r1 * (1.0 - r2);
+  omega = std::exp(theta[idx++]);
+  const double persistence = kMaxGarchPersistence * sigmoid(theta[idx++]);
+  const double alpha_fraction = sigmoid(theta[idx++]);
+  alpha = persistence * alpha_fraction;
+  beta = persistence * (1.0 - alpha_fraction);
+}
+
+std::vector<double> encode_initial(
+  bool has_constant, double c0, double phi1_0, double phi2_0,
+  double omega0, double alpha0, double beta0)
+{
+  std::vector<double> theta;
+  if (has_constant) {
+    theta.push_back(c0);
+  }
+  const double r2 = std::clamp(phi2_0, -0.95, 0.95);
+  const double r1 = std::clamp(std::abs(1.0 - r2) > 1e-6 ? phi1_0 / (1.0 - r2) : 0.0, -0.95, 0.95);
+  theta.push_back(std::atanh(r1));
+  theta.push_back(std::atanh(r2));
+  theta.push_back(std::log(std::max(omega0, 1e-10)));
+  const double persistence0 = std::clamp((alpha0 + beta0) / kMaxGarchPersistence, 1e-3, 1.0 - 1e-3);
+  theta.push_back(logit(persistence0));
+  const double fraction0 = std::clamp(alpha0 / std::max(alpha0 + beta0, 1e-10), 1e-3, 1.0 - 1e-3);
+  theta.push_back(logit(fraction0));
+  return theta;
+}
+
+struct GarchPathResult
+{
+  double log_likelihood = -std::numeric_limits<double>::infinity();
+  double last_eps = 0.0;
+  double last_sigma2 = 0.0;
+  bool valid = false;
+};
+
+// Runs the ARMA(2) mean recursion and the GARCH(1,1) conditional-variance recursion
+// over the (already differenced) series w, and accumulates the exact Gaussian
+// conditional log-likelihood. The presample innovation and variance are seeded with
+// a FIXED backcast_variance (the sample mean of squared conditional-least-squares
+// residuals, computed once before optimization). MATLAB's Econometrics Toolbox
+// documents (mathworks.com/help/econ/presample-data-for-conditional-variance-
+// estimation.html) that presample variances/innovations default to "the sample mean
+// of squared response series" but does not disclose the exact numeric procedure, so
+// this is a standard, fixed-backcast choice rather than a verified bit-exact match.
+// Critically, the backcast must stay fixed across optimization iterations (not
+// recomputed from the trial omega/alpha/beta), matching the documented "presample
+// default" semantics.
+GarchPathResult evaluate_path(
+  const std::vector<double> & w, bool has_constant,
+  double c, double phi1, double phi2, double omega, double alpha, double beta,
+  double backcast_variance)
+{
+  GarchPathResult result;
+  if (w.size() <= static_cast<size_t>(ArimaGarchModel::kOrder)) {
+    return result;
+  }
+
+  double prev_eps2 = backcast_variance;
+  double prev_sigma2 = backcast_variance;
+  double log_lik = 0.0;
+  constexpr double kLog2Pi = 1.8378770664093453;
+
+  for (size_t t = static_cast<size_t>(ArimaGarchModel::kOrder); t < w.size(); ++t) {
+    const double mean = (has_constant ? c : 0.0) + phi1 * w[t - 1] + phi2 * w[t - 2];
+    const double eps = w[t] - mean;
+    const double sigma2 = std::max(omega + alpha * prev_eps2 + beta * prev_sigma2, 1e-12);
+    log_lik += -0.5 * kLog2Pi - 0.5 * std::log(sigma2) - 0.5 * (eps * eps) / sigma2;
+    prev_eps2 = eps * eps;
+    prev_sigma2 = sigma2;
+    result.last_eps = eps;
+    result.last_sigma2 = sigma2;
+  }
+  result.log_likelihood = log_lik;
+  result.valid = true;
+  return result;
+}
+
+double negative_log_likelihood(
+  const std::vector<double> & w, bool has_constant, double backcast_variance,
+  const std::vector<double> & theta)
+{
+  double c = 0.0;
+  double phi1 = 0.0;
+  double phi2 = 0.0;
+  double omega = 0.0;
+  double alpha = 0.0;
+  double beta = 0.0;
+  decode_params(theta, has_constant, c, phi1, phi2, omega, alpha, beta);
+  const GarchPathResult result = evaluate_path(w, has_constant, c, phi1, phi2, omega, alpha, beta, backcast_variance);
+  if (!result.valid || !std::isfinite(result.log_likelihood)) {
+    return 1e12;
+  }
+  return -result.log_likelihood;
+}
+
+// Dependency-free Nelder-Mead simplex minimizer (Nelder & Mead, 1965). Used in place
+// of MATLAB's `estimate` (fmincon-based MLE) since no nonlinear-optimization or
+// econometrics toolbox is available in C++; the objective/constraints are exact,
+// the optimizer implementation is not the same one MATLAB uses internally.
+std::vector<double> nelder_mead(
+  const std::function<double(const std::vector<double> &)> & objective,
+  std::vector<double> x0, int max_iterations, double tolerance)
+{
+  const size_t n = x0.size();
+  if (n == 0) {
+    return x0;
+  }
+  constexpr double kAlpha = 1.0;
+  constexpr double kGamma = 2.0;
+  constexpr double kRho = 0.5;
+  constexpr double kSigma = 0.5;
+
+  std::vector<std::vector<double>> simplex(n + 1, x0);
+  for (size_t i = 0; i < n; ++i) {
+    const double step = std::abs(x0[i]) > 1e-8 ? 0.1 * x0[i] : 0.1;
+    simplex[i + 1][i] += step;
+  }
+
+  std::vector<double> scores(n + 1);
+  for (size_t i = 0; i <= n; ++i) {
+    scores[i] = objective(simplex[i]);
+  }
+
+  for (int iter = 0; iter < max_iterations; ++iter) {
+    std::vector<size_t> order(n + 1);
+    for (size_t i = 0; i <= n; ++i) {
+      order[i] = i;
+    }
+    std::sort(order.begin(), order.end(), [&scores](size_t a, size_t b) { return scores[a] < scores[b]; });
+
+    std::vector<std::vector<double>> sorted_simplex(n + 1);
+    std::vector<double> sorted_scores(n + 1);
+    for (size_t i = 0; i <= n; ++i) {
+      sorted_simplex[i] = simplex[order[i]];
+      sorted_scores[i] = scores[order[i]];
+    }
+    simplex = sorted_simplex;
+    scores = sorted_scores;
+
+    if (std::abs(scores[n] - scores[0]) < tolerance) {
+      break;
+    }
+
+    std::vector<double> centroid(n, 0.0);
+    for (size_t i = 0; i < n; ++i) {
+      for (size_t j = 0; j < n; ++j) {
+        centroid[j] += simplex[i][j];
+      }
+    }
+    for (size_t j = 0; j < n; ++j) {
+      centroid[j] /= static_cast<double>(n);
+    }
+
+    std::vector<double> reflected(n);
+    for (size_t j = 0; j < n; ++j) {
+      reflected[j] = centroid[j] + kAlpha * (centroid[j] - simplex[n][j]);
+    }
+    const double reflected_score = objective(reflected);
+
+    if (reflected_score < scores[0]) {
+      std::vector<double> expanded(n);
+      for (size_t j = 0; j < n; ++j) {
+        expanded[j] = centroid[j] + kGamma * (reflected[j] - centroid[j]);
+      }
+      const double expanded_score = objective(expanded);
+      if (expanded_score < reflected_score) {
+        simplex[n] = expanded;
+        scores[n] = expanded_score;
+      } else {
+        simplex[n] = reflected;
+        scores[n] = reflected_score;
+      }
+      continue;
+    }
+
+    if (reflected_score < scores[n - 1]) {
+      simplex[n] = reflected;
+      scores[n] = reflected_score;
+      continue;
+    }
+
+    std::vector<double> contracted(n);
+    for (size_t j = 0; j < n; ++j) {
+      contracted[j] = centroid[j] + kRho * (simplex[n][j] - centroid[j]);
+    }
+    const double contracted_score = objective(contracted);
+    if (contracted_score < scores[n]) {
+      simplex[n] = contracted;
+      scores[n] = contracted_score;
+      continue;
+    }
+
+    for (size_t i = 1; i <= n; ++i) {
+      for (size_t j = 0; j < n; ++j) {
+        simplex[i][j] = simplex[0][j] + kSigma * (simplex[i][j] - simplex[0][j]);
+      }
+      scores[i] = objective(simplex[i]);
+    }
+  }
+
+  size_t best = 0;
+  for (size_t i = 1; i <= n; ++i) {
+    if (scores[i] < scores[best]) {
+      best = i;
+    }
+  }
+  return simplex[best];
+}
+
+} // namespace
+
+void ArimaGarchModel::fit(const std::vector<double> & window, int d, double variance_floor)
+{
+  d_ = d;
+  has_constant_ = (d == 0);
+  variance_floor_ = variance_floor;
+  fitted_ = false;
+
+  const std::vector<double> w = difference(window, d_);
+  if (w.size() <= static_cast<size_t>(kOrder) + 1) {
+    // Not enough data for a well-posed joint MLE fit: fall back to a flat model
+    // whose forecast variance is the (floored) sample variance of the series.
+    c_ = w.empty() ? 0.0 : std::accumulate(w.begin(), w.end(), 0.0) / static_cast<double>(w.size());
+    phi1_ = 0.0;
+    phi2_ = 0.0;
+    omega_ = std::max(w.size() > 1 ? vector_variance(w) : 0.0, variance_floor_ * variance_floor_);
+    alpha_ = 0.0;
+    beta_ = 0.0;
+    backcast_variance_ = omega_;
+    fitted_ = true;
+    return;
+  }
+
+  // Conditional least squares gives a well-behaved starting point for the AR(2)
+  // mean coefficients before the joint ARMA+GARCH log-likelihood is optimized.
+  const int rows = static_cast<int>(w.size()) - kOrder;
+  Eigen::MatrixXd design(rows, has_constant_ ? 3 : 2);
+  Eigen::VectorXd target(rows);
+  for (int i = 0; i < rows; ++i) {
+    const int t = i + kOrder;
+    int col = 0;
+    if (has_constant_) {
+      design(i, col++) = 1.0;
+    }
+    design(i, col++) = w[static_cast<size_t>(t) - 1];
+    design(i, col++) = w[static_cast<size_t>(t) - 2];
+    target(i) = w[static_cast<size_t>(t)];
+  }
+  const Eigen::VectorXd ols = design.colPivHouseholderQr().solve(target);
+  const double c0 = has_constant_ ? ols(0) : 0.0;
+  const double phi1_0 = ols(has_constant_ ? 1 : 0);
+  const double phi2_0 = ols(has_constant_ ? 2 : 1);
+
+  const Eigen::VectorXd residual = target - design * ols;
+  std::vector<double> residual_values(residual.data(), residual.data() + residual.size());
+  const double residual_var = std::max(vector_variance(residual_values), variance_floor_ * variance_floor_);
+
+  // Fixed presample backcast for the GARCH recursion: the sample mean of squared
+  // conditional-least-squares residuals, matching MATLAB's documented default
+  // ("sample mean of squared response series") for presample variances/innovations.
+  // This is computed once, before optimization, and held fixed across iterations
+  // and across every subsequent forecast() call for this fitted model.
+  double residual_sum_sq = 0.0;
+  for (const double value : residual_values) {
+    residual_sum_sq += value * value;
+  }
+  backcast_variance_ = std::max(
+    residual_sum_sq / static_cast<double>(residual_values.size()),
+    variance_floor_ * variance_floor_);
+
+  // Standard GARCH(1,1) starting point (moderate persistence, ARCH-dominated).
+  constexpr double kAlpha0 = 0.1;
+  constexpr double kBeta0 = 0.8;
+  const double omega0 = residual_var * (1.0 - kAlpha0 - kBeta0);
+
+  const std::vector<double> theta0 = encode_initial(has_constant_, c0, phi1_0, phi2_0, omega0, kAlpha0, kBeta0);
+  const double backcast = backcast_variance_;
+  const auto objective = [&w, this, backcast](const std::vector<double> & theta) {
+    return negative_log_likelihood(w, has_constant_, backcast, theta);
+  };
+  const std::vector<double> theta_opt = nelder_mead(objective, theta0, 4000, 1e-9);
+
+  decode_params(theta_opt, has_constant_, c_, phi1_, phi2_, omega_, alpha_, beta_);
+  fitted_ = true;
+}
+
+std::pair<double, double> ArimaGarchModel::forecast(const std::vector<double> & window) const
+{
+  if (!fitted_ || window.size() <= static_cast<size_t>(kOrder)) {
+    const double fallback = window.empty() ? 0.0 : window.back();
+    return {fallback, variance_floor_ * variance_floor_};
+  }
+
+  const std::vector<double> w = difference(window, d_);
+  const GarchPathResult path =
+    evaluate_path(w, has_constant_, c_, phi1_, phi2_, omega_, alpha_, beta_, backcast_variance_);
+
+  double w_forecast = 0.0;
+  double variance_forecast = 0.0;
+  if (path.valid) {
+    w_forecast = (has_constant_ ? c_ : 0.0) + phi1_ * w[w.size() - 1] + phi2_ * w[w.size() - 2];
+    variance_forecast = omega_ + alpha_ * (path.last_eps * path.last_eps) + beta_ * path.last_sigma2;
+  } else {
+    w_forecast = w.empty() ? 0.0 : w.back();
+    variance_forecast = backcast_variance_;
+  }
+
+  const double mean_forecast = undifference_forecast(window, d_, w_forecast);
+  const double floored_variance = std::max(variance_forecast, variance_floor_ * variance_floor_);
+  return {mean_forecast, floored_variance};
 }
 
 HLTSADetector::HLTSADetector(HLTSAConfig config)
@@ -264,15 +549,8 @@ FrameResult HLTSADetector::main_step(
   const cv::Mat & frame,
   const std::chrono::steady_clock::time_point & start)
 {
-  std::vector<double> y_values;
-  std::vector<double> theta_values;
-  const size_t history = std::min<size_t>(static_cast<size_t>(config_.listener_frames), states_.size());
-  y_values.reserve(history);
-  theta_values.reserve(history);
-  for (size_t i = states_.size() - history; i < states_.size(); ++i) {
-    y_values.push_back(states_[i].y);
-    theta_values.push_back(states_[i].theta_deg);
-  }
+  const std::vector<double> y_values = trailing_values(false);
+  const std::vector<double> theta_values = trailing_values(true);
 
   const auto [yf, yf_var] = y_model_.forecast(y_values);
   const auto [tf, tf_var] = theta_model_.forecast(theta_values);
@@ -393,19 +671,32 @@ FrameResult HLTSADetector::presence_detector(
 void HLTSADetector::fit_models()
 {
   const auto start = std::chrono::steady_clock::now();
-  std::vector<double> y_values;
-  std::vector<double> theta_values;
-  const size_t history = std::min<size_t>(static_cast<size_t>(config_.listener_frames), states_.size());
-  y_values.reserve(history);
-  theta_values.reserve(history);
-  for (size_t i = states_.size() - history; i < states_.size(); ++i) {
-    y_values.push_back(states_[i].y);
-    theta_values.push_back(states_[i].theta_deg);
-  }
+  const std::vector<double> y_values = trailing_values(false);
+  const std::vector<double> theta_values = trailing_values(true);
   y_model_.fit(y_values, 2, config_.min_y_sd);
   theta_model_.fit(theta_values, 0, config_.min_theta_sd);
   model_ready_ = true;
   model_fit_seconds_ += elapsed_seconds(start);
+}
+
+std::vector<double> HLTSADetector::trailing_values(bool use_theta) const
+{
+  // Matches MATLAB's HL_est(end-N+Mdl.P+1:end,:) slice: both the initial estimate()
+  // call and every subsequent forecast() call use the trailing N-P samples, where
+  // N = listener_frames and Mdl.P is the *compound* AR polynomial degree p+D (not
+  // just the AR lag order): P=4 for the y model (ARLags 1:2, D=2), P=2 for theta
+  // (ARLags 1:2, D=0).
+  const int differencing_order = use_theta ? 0 : 2;
+  const int p = ArimaGarchModel::kOrder + differencing_order;
+  const size_t window_len = std::min<size_t>(
+    static_cast<size_t>(std::max(config_.listener_frames - p, 1)),
+    states_.size());
+  std::vector<double> values;
+  values.reserve(window_len);
+  for (size_t i = states_.size() - window_len; i < states_.size(); ++i) {
+    values.push_back(use_theta ? states_[i].theta_deg : states_[i].y);
+  }
+  return values;
 }
 
 bool HLTSADetector::needs_control_loop(

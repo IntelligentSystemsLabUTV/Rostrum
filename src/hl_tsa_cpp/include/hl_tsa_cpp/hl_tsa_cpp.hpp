@@ -72,8 +72,8 @@ struct HLTSAConfig
   double max_abs_horizon_angle_deg = 35.0;
   double min_roi_height_fraction = 0.075;
   double error_band_fraction = 0.025;
-  double min_y_sd = 2.0;
-  double min_theta_sd = 0.25;
+  double min_y_sd = 0.05;
+  double min_theta_sd = 0.01;
 };
 
 struct FrameResult
@@ -119,22 +119,35 @@ struct VideoOptions
   bool show = false;
 };
 
-class ARModel
+/**
+ * Univariate ARIMA(2,d,0) mean model with a GARCH(1,1) conditional-variance model,
+ * matching MATLAB's `arima('ARLags',1:2,'D',d,'Variance',garch(1,1))` as used by
+ * HL_Detect_TSA.m. Parameters are jointly estimated by maximizing the exact Gaussian
+ * conditional log-likelihood (Nelder-Mead simplex, since no gradient/toolbox is
+ * available in C++); see hl_tsa_algorithm.cpp for the documented numerical choices
+ * (presample backcast, parameter constraints) that MATLAB does not disclose exactly.
+ */
+class ArimaGarchModel
 {
 public:
-  void fit(const std::vector<double> & values, int differencing, double min_sd);
-  std::pair<double, double> forecast(const std::vector<double> & values) const;
-  int differencing() const { return differencing_; }
+  static constexpr int kOrder = 2;
+
+  void fit(const std::vector<double> & window, int d, double variance_floor);
+  std::pair<double, double> forecast(const std::vector<double> & window) const;
+  int differencing() const { return d_; }
 
 private:
-  static std::vector<double> difference(const std::vector<double> & values, int order);
-  double local_variance(const std::vector<double> & transformed) const;
-
-  Eigen::Vector3d coefficients_{0.0, 1.0, 0.0};
-  double variance_ = 1.0;
-  int order_ = 2;
-  int differencing_ = 0;
-  double min_sd_ = 1.0;
+  bool has_constant_ = false;
+  int d_ = 0;
+  double c_ = 0.0;
+  double phi1_ = 0.0;
+  double phi2_ = 0.0;
+  double omega_ = 0.0;
+  double alpha_ = 0.0;
+  double beta_ = 0.0;
+  double backcast_variance_ = 0.0;
+  double variance_floor_ = 0.0;
+  bool fitted_ = false;
 };
 
 class HLTSADetector
@@ -190,12 +203,13 @@ private:
     const HorizonState & local_state,
     double error,
     int frame_height) const;
+  std::vector<double> trailing_values(bool use_theta) const;
 
   HLTSAConfig config_;
   std::vector<HorizonState> states_;
   std::vector<double> errors_;
-  ARModel y_model_;
-  ARModel theta_model_;
+  ArimaGarchModel y_model_;
+  ArimaGarchModel theta_model_;
   bool model_ready_ = false;
   bool absent_ = false;
   int last_present_index_ = 0;
