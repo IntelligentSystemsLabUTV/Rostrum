@@ -1,0 +1,34 @@
+/essld:
+  ros__parameters:
+    autostart: true
+    verbose: false
+    publish_annotated: true
+    publish_mask: false
+    subscribers:
+      topic_name:
+        image: "/camera/image_rect_color"
+      best_effort_qos: false
+      depth: 30
+      transport: "raw"
+    output:
+      states_csv: ""
+      frame_timing_csv: "logs/essld_test.csv"
+    model:
+      engine_path: "/home/neo/workspace/logs/models/dceunetex_fp16.engine"
+      gpu_id: 0
+      input_width: 512
+      input_height: 256
+    mask_threshold: 0.5
+    fusion:
+      median_filter_sizes: [1, 5, 7]
+      canny_fusion_weights: [0.5, 0.3, 0.2]
+      confidence_map_sigmas: [10.0, 15.0, 20.0]
+      confidence_map_weights: [0.5, 0.3, 0.2]
+      fused_map_final_threshold: 60
+      hough_threshold: 50
+      hough_min_line_length: 60
+      hough_max_line_gap: 100
+      grad_score: 80.0
+    smoothing:
+      alpha: 0.7
+      hold_last_on_failure: true
