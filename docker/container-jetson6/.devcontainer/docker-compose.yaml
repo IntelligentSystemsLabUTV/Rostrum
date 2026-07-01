@@ -19,14 +19,14 @@
 # limitations under the License.
 
 services:
-  Rostrum-jetson6:
+  rostrum-jetson6:
     build:
       context: ../
       network: host
       dockerfile: Dockerfile
       args:
         - USER_UID=1000
-    image: Rostrum:jetson6
+    image: rostrum:jetson6
     environment:
       TERM: xterm-256color
       DISPLAY:

@@ -1,12 +1,12 @@
 {
-  "name": "Rostrum-jetson6",
+  "name": "rostrum-jetson6",
   "dockerComposeFile": [
     "docker-compose.yaml"
   ],
   // Only start this service
-  "service": "Rostrum-jetson6",
+  "service": "rostrum-jetson6",
   "runServices": [
-    "Rostrum-jetson6"
+    "rostrum-jetson6"
   ],
   // Stop container if VS Code is shut down
   "shutdownAction": "stopCompose",

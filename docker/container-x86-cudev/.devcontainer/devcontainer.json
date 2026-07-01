@@ -1,12 +1,12 @@
 {
-  "name": "Rostrum-x86-cudev",
+  "name": "rostrum-x86-cudev",
   "dockerComposeFile": [
     "docker-compose.yaml"
   ],
   // Only start this service
-  "service": "Rostrum-x86-cudev",
+  "service": "rostrum-x86-cudev",
   "runServices": [
-    "Rostrum-x86-cudev"
+    "rostrum-x86-cudev"
   ],
   // Stop container if VS Code is shut down
   "shutdownAction": "stopCompose",
