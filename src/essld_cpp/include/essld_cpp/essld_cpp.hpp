@@ -166,6 +166,7 @@ struct FrameResult
   double theta_deg = 0.0;
   bool valid = false;
   double elapsed_s = 0.0;
+  double inference_elapsed_s = 0.0;
   cv::Mat mask;
 };
 

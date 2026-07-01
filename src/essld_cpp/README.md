@@ -143,14 +143,20 @@ panel.
 Set `output.states_csv` and/or `output.frame_timing_csv` (both empty/disabled
 by default) to absolute file paths to have the node append, per processed
 frame: a `frame,y,theta_deg` row to `states_csv`, and a
-`frame,elapsed_seconds,y,theta_deg,valid_flag` row to `frame_timing_csv` --
-same CSV-logging mechanism as `hl_tsa_cpp`'s `output.states_csv`/
-`output.frame_timing_csv` parameters. `elapsed_seconds` covers exactly what
-`ESSLDDetector::process_frame` times: preprocessing, TensorRT inference,
-sigmoid/threshold, coarse-line extraction, and (when it runs) the dual
-multi-scale fusion refinement -- it does not include ROS message
-(de)serialization or the image queue wait. Unlike `hl_tsa_cpp`, this package has no offline (non-ROS) video-benchmarking
-app, so these two are the only way to log timing/detections to disk.
+`frame,elapsed_seconds,inference_seconds,y,theta_deg,valid_flag` row to
+`frame_timing_csv` -- same CSV-logging mechanism as `hl_tsa_cpp`'s
+`output.states_csv`/`output.frame_timing_csv` parameters. `elapsed_seconds`
+covers everything `ESSLDDetector::process_frame` times: preprocessing,
+TensorRT inference, sigmoid/threshold, coarse-line extraction, and (when it
+runs) the dual multi-scale fusion refinement -- it does not include ROS
+message (de)serialization or the image queue wait. `inference_seconds` is
+the subset of that spent purely inside `TRTEngine::infer` (H2D copy +
+`enqueueV3` + D2H copy + stream sync) -- comparing it against
+`elapsed_seconds` tells you how much time is TensorRT itself vs. the
+OpenCV pre/post-processing and refinement around it. Both timings are also
+logged with `verbose: true` (`RCLCPP_INFO` per frame). Unlike `hl_tsa_cpp`,
+this package has no offline (non-ROS) video-benchmarking app, so these are
+the only ways to log timing/detections to disk.
 
 ## Troubleshooting: apparent message loss
 

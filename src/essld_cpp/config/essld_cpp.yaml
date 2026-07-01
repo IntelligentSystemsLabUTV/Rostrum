@@ -1,7 +1,7 @@
 /essld:
   ros__parameters:
     autostart: true
-    verbose: false
+    verbose: true
     publish_annotated: true
     publish_mask: false
     subscribers:

@@ -236,10 +236,11 @@ void ESSLD::process_image(const Image::ConstSharedPtr & image_msg)
   if (verbose_) {
     RCLCPP_INFO(
       this->get_logger(),
-      "y=%.3f theta=%.3f valid=%d elapsed=%.3f ms",
+      "y=%.3f theta=%.3f valid=%d inference=%.3f ms elapsed=%.3f ms",
       result.y,
       result.theta_deg,
       result.valid,
+      result.inference_elapsed_s * 1000.0,
       result.elapsed_s * 1000.0);
   }
 }
@@ -260,7 +261,7 @@ void ESSLD::write_csv_headers()
     if (!frame_timing_csv_.is_open()) {
       RCLCPP_ERROR(this->get_logger(), "Could not open frame timing CSV: %s", output_frame_timing_csv_.c_str());
     } else {
-      frame_timing_csv_ << "frame,elapsed_seconds,y,theta_deg,valid_flag\n";
+      frame_timing_csv_ << "frame,elapsed_seconds,inference_seconds,y,theta_deg,valid_flag\n";
     }
   }
 }
@@ -284,6 +285,7 @@ void ESSLD::append_frame_timing_csv(const FrameResult & result)
   frame_timing_csv_ << frame_count_ << ","
                     << std::fixed << std::setprecision(9)
                     << result.elapsed_s << ","
+                    << result.inference_elapsed_s << ","
                     << std::setprecision(6)
                     << result.y << ","
                     << result.theta_deg << ","

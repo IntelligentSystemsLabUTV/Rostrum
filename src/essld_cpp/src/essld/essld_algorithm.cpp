@@ -60,7 +60,10 @@ FrameResult ESSLDDetector::process_frame(const cv::Mat & bgr_frame)
     std::memcpy(input_buffer_.data() + c * plane, channels[c].ptr<float>(0), plane * sizeof(float));
   }
 
+  const auto inference_start = std::chrono::steady_clock::now();
   engine_->infer(input_buffer_.data(), logits_buffer_.data());
+  result.inference_elapsed_s =
+    std::chrono::duration<double>(std::chrono::steady_clock::now() - inference_start).count();
 
   // Sigmoid on the raw logits, then resize the probability map back up to
   // the original frame size before thresholding (matches demo_video.py's
