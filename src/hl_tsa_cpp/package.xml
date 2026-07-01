@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>hl_tsa_cpp</name>
+  <version>0.1.0</version>
+  <description>CPU C++ Horizon Line detection using TSA dynamic ROI generation.</description>
+  <maintainer email="info@dotxautomation.com">dotX Automation</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>dua_app_management</depend>
+  <depend>dua_cv_bridge</depend>
+  <depend>dua_node_cpp</depend>
+  <depend>dua_qos_cpp</depend>
+  <build_depend>eigen</build_depend>
+  <build_depend>eigen3_cmake_module</build_depend>
+  <depend>image_transport</depend>
+  <depend>params_manager_cpp</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_components</depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

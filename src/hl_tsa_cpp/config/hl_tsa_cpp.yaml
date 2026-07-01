@@ -1,0 +1,27 @@
+/hl_tsa:
+  ros__parameters:
+    autostart: true
+    verbose: false
+    publish_annotated: true
+    subscribers:
+      topic_name:
+        image: "/camera/image_rect_color"
+      best_effort_qos: false
+      depth: 100
+      transport: "raw"
+    output:
+      states_csv: ""
+      frame_timing_csv: "logs/test.csv"
+    listener_frames: 16
+    max_iterations: 3
+    zscore: 1.96
+    canny_low: 20
+    canny_high: 60
+    area_open_fraction: 0.005
+    hough_threshold: 15
+    hough_theta_resolution_deg: 0.25
+    max_abs_horizon_angle_deg: 35.0
+    min_roi_height_fraction: 0.075
+    error_band_fraction: 0.025
+    min_y_sd: 2.0
+    min_theta_sd: 0.25
