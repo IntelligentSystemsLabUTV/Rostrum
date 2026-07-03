@@ -1,0 +1,104 @@
+params:
+  fps:
+    type: double
+    default_value: 0.0
+    min_value: 0.0
+    max_value: 1000.0
+    step: 0.001
+    description: "Publishing rate in frames per second. If zero, use the video's native FPS."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: _fps
+
+  frame_id:
+    type: string
+    default_value: "camera"
+    description: "Frame ID written into outgoing Image headers."
+    constraints: ""
+    read_only: false
+    var_name: _frame_id
+
+  loop:
+    type: bool
+    default_value: false
+    description: "Whether to loop the video after end of file."
+    constraints: ""
+    read_only: false
+    var_name: _loop
+
+  max_frames:
+    type: integer
+    default_value: 0
+    min_value: 0
+    max_value: 2147483647
+    step: 1
+    description: "Maximum number of frames to publish. If zero, publish until the video ends."
+    constraints: ""
+    read_only: false
+    var_name: _max_frames
+
+  qos.depth:
+    type: integer
+    default_value: 1
+    min_value: 1
+    max_value: 1000
+    step: 1
+    description: "Outgoing Image publisher QoS queue depth."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: _qos_depth
+
+  qos.reliability:
+    type: string
+    default_value: "reliable"
+    description: "Outgoing Image publisher QoS reliability."
+    constraints: "Must be either 'reliable' or 'best_effort'. Cannot be changed."
+    read_only: true
+    var_name: _qos_reliability
+    validator: validate_qos_reliability
+
+  start_frame:
+    type: integer
+    default_value: 0
+    min_value: 0
+    max_value: 2147483647
+    step: 1
+    description: "Zero-based video frame index to start publishing from."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: _start_frame
+
+  verbose:
+    type: bool
+    default_value: false
+    description: "Whether to print per-frame publish logs."
+    constraints: ""
+    read_only: false
+    var_name: _verbose
+
+  video_path:
+    type: string
+    default_value: ""
+    description: "Path or URI of the video source to replay."
+    constraints: "Cannot be changed. Must be accepted by OpenCV VideoCapture."
+    read_only: true
+    var_name: _video_path
+
+  wait_for_subscribers:
+    type: bool
+    default_value: true
+    description: "Whether to wait for at least one Image subscriber before replay starts."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: _wait_for_subscribers
+
+  wait_timeout_sec:
+    type: double
+    default_value: 10.0
+    min_value: 0.0
+    max_value: 3600.0
+    step: 0.1
+    description: "Maximum time to wait for an Image subscriber."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: _wait_timeout_sec

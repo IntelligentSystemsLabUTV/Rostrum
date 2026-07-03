@@ -1,0 +1,15 @@
+/video_image_converter:
+  ros__parameters:
+    fps: 0.0
+    frame_id: camera
+    loop: false
+    max_frames: 0
+    qos:
+      depth: 1
+      reliability: reliable
+    start_frame: 0
+    use_sim_time: false
+    verbose: false
+    video_path: ""
+    wait_for_subscribers: true
+    wait_timeout_sec: 10.0

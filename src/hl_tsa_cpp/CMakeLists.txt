@@ -103,11 +103,6 @@ install(TARGETS
   hl_tsa_video_app
   DESTINATION lib/${PROJECT_NAME})
 
-# Install Python video publisher utility
-install(PROGRAMS
-  scripts/video_image_publisher
-  DESTINATION lib/${PROJECT_NAME})
-
 # Install headers
 install(DIRECTORY include/
   DESTINATION include)

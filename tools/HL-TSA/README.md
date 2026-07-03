@@ -1,6 +1,7 @@
 # HL-TSA Python Port
 
 Python implementation of `tools/HL-Detection-using-TSA/HL_Detect_TSA.m`.
+The C++ CPU ROS 2 package lives in `src/hl_tsa_cpp/`.
 
 The main entry point is `hl_detect_tsa.py`. It returns an `N x 2` state matrix
 where column 1 is the vertical horizon position at the image center in pixels,
@@ -36,3 +37,48 @@ The MATLAB version depends on the Econometrics Toolbox for ARIMA/GARCH models
 and on the Image Processing Toolbox for Radon-based line detection. This port
 uses a small local AR(2) forecaster and OpenCV Hough lines so it can run with
 the Python packages already available in this workspace.
+
+## C++ CPU Package
+
+Build the C++ package with:
+
+```bash
+colcon build \
+  --base-paths src \
+  --packages-select hl_tsa_cpp \
+  --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
+```
+
+Run the offline video app with the tuned Buoy parameters:
+
+```bash
+source install/setup.zsh
+
+ros2 run hl_tsa_cpp hl_tsa_video_app \
+  --video logs/Buoy/buoyGT_2_5_3_4.avi \
+  --listener-frames 16 \
+  --canny-low 20 \
+  --canny-high 60 \
+  --hough-threshold 15 \
+  --states-csv logs/Buoy/hl_tsa_cpp_buoyGT_2_5_3_4_states.csv \
+  --frame-timing-csv logs/Buoy/hl_tsa_cpp_buoyGT_2_5_3_4_frame_timing.csv
+```
+
+To test the ROS node with an AVI file, launch HL-TSA in one terminal:
+
+```bash
+source install/setup.zsh
+
+ros2 launch hl_tsa_cpp hl_tsa_cpp.launch.py \
+  image_topic:=/camera/image_rect_color
+```
+
+Then publish the video frames in a second terminal:
+
+```bash
+source install/setup.zsh
+
+ros2 launch hl_tsa_cpp video_image_publisher.launch.py \
+  video_path:=logs/Buoy/buoyGT_2_5_3_4.avi \
+  topic_name:=/camera/image_rect_color
+```

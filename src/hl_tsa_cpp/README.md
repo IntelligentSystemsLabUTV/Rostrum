@@ -104,14 +104,14 @@ In a second terminal, publish an AVI file to that image topic:
 ```bash
 source install/setup.zsh
 
-ros2 launch hl_tsa_cpp video_image_publisher.launch.py \
+ros2 launch video_image_converter_py video_image_converter.launch.py \
   video_path:=logs/Buoy/buoyGT_2_5_3_4.avi \
-  topic_name:=/camera/image_rect_color
+  image_topic:=/camera/image_rect_color
 ```
 
-The publisher uses the video's native FPS by default. Override it with
+The converter uses the video's native FPS by default. Override it with
 `fps:=25.0`, and use `loop:=true` to replay the video continuously. By default
-the video publisher waits up to 10 seconds for an image subscriber before it
+the video converter waits up to 10 seconds for an image subscriber before it
 starts replaying; disable that with `wait_for_subscribers:=false` if you only
 want to publish the raw image stream.
 

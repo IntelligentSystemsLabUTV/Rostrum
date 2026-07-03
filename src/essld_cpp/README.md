@@ -107,17 +107,15 @@ ros2 launch essld_cpp essld_cpp.launch.py \
   image_topic:=/camera/image_rect_color
 ```
 
-To feed it a test clip over ROS, reuse `hl_tsa_cpp`'s existing
-`video_image_publisher` utility (a generic video-file-to-`Image`-topic
-publisher, not specific to horizon detection) instead of duplicating it in
-this package:
+To feed it a test clip over ROS, use the generic `video_image_converter_py`
+video-file-to-`Image`-topic converter:
 
 ```bash
 source install/setup.zsh
 
-ros2 launch hl_tsa_cpp video_image_publisher.launch.py \
+ros2 launch video_image_converter_py video_image_converter.launch.py \
   video_path:=tools/ESSLD/samples/test_13.mp4 \
-  topic_name:=/camera/image_rect_color
+  image_topic:=/camera/image_rect_color
 ```
 
 The node publishes `~/state` as a `std_msgs/msg/Float64MultiArray` with:
