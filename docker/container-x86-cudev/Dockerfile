@@ -26,6 +26,8 @@ ARG USER_UID=1000
 ENV DEBIAN_FRONTEND=noninteractive
 
 # IMAGE SETUP START #
+RUN /opt/dua-venv/bin/python3 -m pip install --no-cache-dir \
+  "numba>=0.65.0"
 # IMAGE SETUP END #
 
 # Copy user configuration files to /etc/skel
