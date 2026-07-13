@@ -1,0 +1,376 @@
+header_include_path: trid_cpp/trid_cpp.hpp
+namespace: trid_cpp
+node_class_name: TRiD
+
+params:
+  autostart:
+    type: bool
+    default_value: true
+    description: "Whether to process incoming images immediately."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: autostart_
+
+  verbose:
+    type: bool
+    default_value: false
+    description: "Flag for printing per-frame information."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: verbose_
+
+  publish_annotated:
+    type: bool
+    default_value: true
+    description: "Whether to publish annotated images with the detected horizon line."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: publish_annotated_
+
+  publish_heatmap:
+    type: bool
+    default_value: false
+    description: "Whether to publish a sigmoid-scaled visualization of the raw per-pixel heat logits (debug only; the detector extracts the line via a per-column softmax expectation, not a threshold on this image)."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: publish_heatmap_
+
+  subscribers.topic_name.image:
+    type: string
+    default_value: "/camera/image_rect_color"
+    description: "Input image topic name."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: subscribers_topic_name_image_
+
+  subscribers.best_effort_qos:
+    type: bool
+    default_value: false
+    description: "Whether to subscribe to images with best-effort QoS."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: subscribers_best_effort_qos_
+
+  subscribers.depth:
+    type: integer
+    default_value: 30
+    min_value: 1
+    max_value: 1000
+    step: 1
+    description: "Image subscriber queue depth."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: subscribers_depth_
+
+  subscribers.transport:
+    type: string
+    default_value: "raw"
+    description: "image_transport transport type."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: subscribers_transport_
+
+  output.states_csv:
+    type: string
+    default_value: ""
+    description: "Optional path for detected horizon line states CSV."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: output_states_csv_
+
+  output.frame_timing_csv:
+    type: string
+    default_value: ""
+    description: "Optional path for per-frame execution time CSV."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: output_frame_timing_csv_
+
+  model.engine_path:
+    type: string
+    default_value: ""
+    description: "Absolute path to the TensorRT .engine file (TRiD-Horizon backbone+temporal+column-head export, e.g. tools/TRiD/weights/trid_horizon_fp16.engine). Mandatory: the node fails to start if empty or unreadable."
+    constraints: "Cannot be changed. Engines are locked to the GPU/driver/TensorRT build used to create them."
+    read_only: true
+    var_name: model_engine_path_
+
+  model.gpu_id:
+    type: integer
+    default_value: 0
+    min_value: 0
+    max_value: 15
+    step: 1
+    description: "CUDA device index to run inference on."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: model_gpu_id_
+
+  model.input_width:
+    type: integer
+    default_value: 512
+    min_value: 32
+    max_value: 4096
+    step: 1
+    description: "Model input width in pixels. Must match the engine's bound input tensor shape."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: model_input_width_
+
+  model.input_height:
+    type: integer
+    default_value: 256
+    min_value: 32
+    max_value: 4096
+    step: 1
+    description: "Model input height in pixels. Must match the engine's bound input tensor shape."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: model_input_height_
+
+  model.clip_length:
+    type: integer
+    default_value: 8
+    min_value: 1
+    max_value: 64
+    step: 1
+    description: "Fixed temporal clip length (number of stacked frames) the engine was exported/built with. The node maintains a rolling window of this many preprocessed frames, front-padding with the oldest buffered frame while a stream is still warming up (see README.md)."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: model_clip_length_
+
+  dsac.hypotheses:
+    type: integer
+    default_value: 64
+    min_value: 1
+    max_value: 1024
+    step: 1
+    description: "Number of column-pair line hypotheses sampled per frame by the C++ port of models.heads.DSACLineFit (TRiDHorizon is constructed with DSACLineFit(hypotheses=64) in the reference tool)."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: dsac_hypotheses_
+
+  dsac.temperature:
+    type: double
+    default_value: 0.1
+    min_value: 0.001
+    max_value: 10.0
+    step: 0.001
+    description: "Softmax/sigmoid temperature for DSACLineFit's soft-inlier weighting and hypothesis voting."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: dsac_temperature_
+
+  dsac.inlier_threshold:
+    type: double
+    default_value: 0.05
+    min_value: 0.0
+    max_value: 1.0
+    step: 0.001
+    description: "DSACLineFit soft-inlier residual threshold, in normalized [-1,1] y-coordinates."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: dsac_inlier_threshold_
+
+  dsac.min_column_delta:
+    type: double
+    default_value: 0.05
+    min_value: 0.0
+    max_value: 1.0
+    step: 0.001
+    description: "DSACLineFit minimum normalized column separation between a hypothesis's two sampled points before the second point is resampled."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: dsac_min_column_delta_
+
+  roi.enable:
+    type: bool
+    default_value: true
+    description: "Whether to run the dual multi-scale ROI refinement stage on top of the model's coarse line (matches run_inference.py's --roi/--no-roi)."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: roi_enable_
+
+  roi.gate_enable:
+    type: bool
+    default_value: true
+    description: "Whether to apply the conservative acceptance gate to the ROI-refined line, falling back to the coarse line when it rejects (matches run_inference.py's --roi-gate/--no-roi-gate). Has no effect if roi.enable is false."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: roi_gate_enable_
+
+  fusion.median_filter_sizes:
+    type: integer_array
+    default_value:
+      - 1
+      - 5
+      - 7
+    min_value: 1
+    max_value: 31
+    step: 2
+    description: "Median filter kernel sizes (must be odd) for the multi-scale Canny fusion."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: fusion_median_filter_sizes_
+
+  fusion.canny_fusion_weights:
+    type: double_array
+    default_value:
+      - 0.5
+      - 0.3
+      - 0.2
+    min_value: 0.0
+    max_value: 1.0
+    step: 0.01
+    description: "Weights for fusing edges from each median_filter_sizes scale. Must have the same length."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: fusion_canny_fusion_weights_
+
+  fusion.confidence_map_sigmas:
+    type: double_array
+    default_value:
+      - 10.0
+      - 15.0
+      - 20.0
+    min_value: 0.1
+    max_value: 200.0
+    step: 0.1
+    description: "Sigmas of the Gaussian spatial confidence maps centered on the ROI midline."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: fusion_confidence_map_sigmas_
+
+  fusion.confidence_map_weights:
+    type: double_array
+    default_value:
+      - 0.5
+      - 0.3
+      - 0.2
+    min_value: 0.0
+    max_value: 1.0
+    step: 0.01
+    description: "Weights for fusing confidence maps from each confidence_map_sigmas scale. Must have the same length."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: fusion_confidence_map_weights_
+
+  fusion.fused_map_final_threshold:
+    type: integer
+    default_value: 60
+    min_value: 0
+    max_value: 255
+    step: 1
+    description: "Threshold on the fused, non-max-suppressed confidence map (0-255 scale) used to generate candidate points."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: fusion_fused_map_final_threshold_
+
+  fusion.hough_threshold:
+    type: integer
+    default_value: 30
+    min_value: 1
+    max_value: 1000
+    step: 1
+    description: "OpenCV HoughLinesP vote threshold used by the linearity filter."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: fusion_hough_threshold_
+
+  fusion.hough_min_line_length:
+    type: integer
+    default_value: 50
+    min_value: 0
+    max_value: 2000
+    step: 1
+    description: "OpenCV HoughLinesP minimum line length."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: fusion_hough_min_line_length_
+
+  fusion.hough_max_line_gap:
+    type: integer
+    default_value: 20
+    min_value: 0
+    max_value: 2000
+    step: 1
+    description: "OpenCV HoughLinesP maximum line gap."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: fusion_hough_max_line_gap_
+
+  fusion.grad_score:
+    type: double
+    default_value: 80.0
+    min_value: 0.0
+    max_value: 255.0
+    step: 1.0
+    description: "Gradient score used to compute the dynamic ROI padding around the coarse line (inference/postprocess.py's refine_existing hardcodes this to 80; exposed here as a tunable parameter, matching essld_cpp's fusion.grad_score)."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: fusion_grad_score_
+
+  roi_gate.min_inside_roi_fraction:
+    type: double
+    default_value: 0.98
+    min_value: 0.0
+    max_value: 1.0
+    step: 0.001
+    description: "Minimum fraction of the refined line's sampled points that must fall inside the ROI polygon for the refinement to be accepted."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: roi_gate_min_inside_roi_fraction_
+
+  roi_gate.max_center_shift_half_height_frac:
+    type: double
+    default_value: 0.80
+    min_value: 0.0
+    max_value: 10.0
+    step: 0.01
+    description: "Maximum allowed shift of the refined line's center y (vs. the coarse line), as a fraction of the ROI half-height (padding)."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: roi_gate_max_center_shift_half_height_frac_
+
+  roi_gate.max_endpoint_shift_roi_height_frac:
+    type: double
+    default_value: 1.00
+    min_value: 0.0
+    max_value: 10.0
+    step: 0.01
+    description: "Maximum allowed shift of either endpoint (vs. the coarse line), as a fraction of the ROI height."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: roi_gate_max_endpoint_shift_roi_height_frac_
+
+  roi_gate.max_angle_change_deg:
+    type: double
+    default_value: 4.0
+    min_value: 0.0
+    max_value: 90.0
+    step: 0.1
+    description: "Maximum allowed change in line angle (degrees) between the coarse and refined estimates."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: roi_gate_max_angle_change_deg_
+
+  roi_gate.min_candidate_count:
+    type: integer
+    default_value: 10
+    min_value: 0
+    max_value: 100000
+    step: 1
+    description: "Minimum number of dual-fusion candidate points required to accept the refinement."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: roi_gate_min_candidate_count_
+
+  roi_gate.min_candidate_span_frac:
+    type: double
+    default_value: 0.20
+    min_value: 0.0
+    max_value: 1.0
+    step: 0.01
+    description: "Minimum horizontal span of dual-fusion candidate points, as a fraction of the frame width, required to accept the refinement."
+    constraints: "Cannot be changed."
+    read_only: true
+    var_name: roi_gate_min_candidate_span_frac_

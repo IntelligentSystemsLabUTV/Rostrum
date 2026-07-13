@@ -1,0 +1,46 @@
+/trid:
+  ros__parameters:
+    autostart: true
+    verbose: true
+    publish_annotated: true
+    publish_heatmap: false
+    subscribers:
+      topic_name:
+        image: "/camera/image_rect_color"
+      best_effort_qos: false
+      depth: 30
+      transport: "raw"
+    output:
+      states_csv: ""
+      frame_timing_csv: "logs/trid_test.csv"
+    model:
+      engine_path: "/home/neo/workspace/logs/models/trid_horizon_fp16.engine"
+      gpu_id: 0
+      input_width: 512
+      input_height: 256
+      clip_length: 8
+    dsac:
+      hypotheses: 64
+      temperature: 0.1
+      inlier_threshold: 0.05
+      min_column_delta: 0.05
+    roi:
+      enable: true
+      gate_enable: true
+    fusion:
+      median_filter_sizes: [1, 5, 7]
+      canny_fusion_weights: [0.5, 0.3, 0.2]
+      confidence_map_sigmas: [10.0, 15.0, 20.0]
+      confidence_map_weights: [0.5, 0.3, 0.2]
+      fused_map_final_threshold: 60
+      hough_threshold: 30
+      hough_min_line_length: 50
+      hough_max_line_gap: 20
+      grad_score: 80.0
+    roi_gate:
+      min_inside_roi_fraction: 0.98
+      max_center_shift_half_height_frac: 0.80
+      max_endpoint_shift_roi_height_frac: 1.00
+      max_angle_change_deg: 4.0
+      min_candidate_count: 10
+      min_candidate_span_frac: 0.20
